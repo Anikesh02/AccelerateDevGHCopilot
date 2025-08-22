@@ -3,6 +3,7 @@ using Library.ApplicationCore.Entities;
 using Library.ApplicationCore.Enums;
 using Library.Console;
 
+
 public class ConsoleApp
 {
     ConsoleState _currentState = ConsoleState.PatronSearch;
@@ -16,34 +17,79 @@ public class ConsoleApp
     ILoanRepository _loanRepository;
     ILoanService _loanService;
     IPatronService _patronService;
+    IBookService _bookService;
 
-    public ConsoleApp(ILoanService loanService, IPatronService patronService, IPatronRepository patronRepository, ILoanRepository loanRepository)
+    public ConsoleApp(ILoanService loanService, IPatronService patronService, IPatronRepository patronRepository, ILoanRepository loanRepository, IBookService bookService)
     {
         _patronRepository = patronRepository;
         _loanRepository = loanRepository;
         _loanService = loanService;
         _patronService = patronService;
+        _bookService = bookService;
     }
 
     public async Task Run()
     {
         while (true)
         {
-            switch (_currentState)
+            Console.WriteLine("\nMain Menu:");
+            Console.WriteLine("1) Patron Search");
+            Console.WriteLine("2) Check Book Availability");
+            Console.WriteLine("q) Quit");
+            Console.Write("Select an option: ");
+            var input = Console.ReadLine();
+            if (input == "1")
             {
-                case ConsoleState.PatronSearch:
-                    _currentState = await PatronSearch();
-                    break;
-                case ConsoleState.PatronSearchResults:
-                    _currentState = await PatronSearchResults();
-                    break;
-                case ConsoleState.PatronDetails:
-                    _currentState = await PatronDetails();
-                    break;
-                case ConsoleState.LoanDetails:
-                    _currentState = await LoanDetails();
-                    break;
+                _currentState = ConsoleState.PatronSearch;
+                while (true)
+                {
+                    switch (_currentState)
+                    {
+                        case ConsoleState.PatronSearch:
+                            _currentState = await PatronSearch();
+                            break;
+                        case ConsoleState.PatronSearchResults:
+                            _currentState = await PatronSearchResults();
+                            break;
+                        case ConsoleState.PatronDetails:
+                            _currentState = await PatronDetails();
+                            break;
+                        case ConsoleState.LoanDetails:
+                            _currentState = await LoanDetails();
+                            break;
+                        case ConsoleState.Quit:
+                            return;
+                    }
+                    if (_currentState == ConsoleState.Quit)
+                        break;
+                }
             }
+            else if (input == "2")
+            {
+                await CheckBookAvailabilityMenu();
+            }
+            else if (input == "q")
+            {
+                return;
+            }
+            else
+            {
+                Console.WriteLine("Invalid input. Please try again.");
+            }
+        }
+    }
+
+    private async Task CheckBookAvailabilityMenu()
+    {
+        Console.Write("Enter Book ID to check availability: ");
+        if (int.TryParse(Console.ReadLine(), out int bookId))
+        {
+            bool available = await _bookService.IsBookAvailable(bookId);
+            Console.WriteLine(available ? "Book is available." : "Book is not available.");
+        }
+        else
+        {
+            Console.WriteLine("Invalid Book ID.");
         }
     }
 
@@ -182,6 +228,11 @@ public class ConsoleApp
 
     async Task<ConsoleState> PatronDetails()
     {
+        if (selectedPatronDetails == null)
+        {
+            Console.WriteLine("No patron selected.");
+            return ConsoleState.PatronSearch;
+        }
         Console.WriteLine($"Name: {selectedPatronDetails.Name}");
         Console.WriteLine($"Membership Expiration: {selectedPatronDetails.MembershipEnd}");
         Console.WriteLine();
@@ -219,10 +270,21 @@ public class ConsoleApp
         }
         else if (action == CommonActions.RenewPatronMembership)
         {
+            if (selectedPatronDetails == null)
+            {
+                Console.WriteLine("No patron selected.");
+                return ConsoleState.PatronSearch;
+            }
             var status = await _patronService.RenewMembership(selectedPatronDetails.Id);
             Console.WriteLine(EnumHelper.GetDescription(status));
             // reloading after renewing membership
-            selectedPatronDetails = (await _patronRepository.GetPatron(selectedPatronDetails.Id))!;
+            var refreshedPatron = await _patronRepository.GetPatron(selectedPatronDetails.Id);
+            if (refreshedPatron == null)
+            {
+                Console.WriteLine("Patron not found after renewal.");
+                return ConsoleState.PatronSearch;
+            }
+            selectedPatronDetails = refreshedPatron;
             return ConsoleState.PatronDetails;
         }
 
@@ -231,6 +293,11 @@ public class ConsoleApp
 
     async Task<ConsoleState> LoanDetails()
     {
+        if (selectedLoanDetails == null)
+        {
+            Console.WriteLine("No loan selected.");
+            return ConsoleState.PatronDetails;
+        }
         Console.WriteLine($"Book title: {selectedLoanDetails.BookItem!.Book!.Title}");
         Console.WriteLine($"Book Author: {selectedLoanDetails.BookItem!.Book!.Author!.Name}");
         Console.WriteLine($"Due date: {selectedLoanDetails.DueDate}");
@@ -246,8 +313,15 @@ public class ConsoleApp
             Console.WriteLine(EnumHelper.GetDescription(status));
 
             // reload loan after extending
-            selectedPatronDetails = (await _patronRepository.GetPatron(selectedPatronDetails.Id))!;
-            selectedLoanDetails = (await _loanRepository.GetLoan(selectedLoanDetails.Id))!;
+            if (selectedPatronDetails != null)
+            {
+                var refreshedPatron = await _patronRepository.GetPatron(selectedPatronDetails.Id);
+                if (refreshedPatron != null)
+                    selectedPatronDetails = refreshedPatron;
+            }
+            var refreshedLoan = await _loanRepository.GetLoan(selectedLoanDetails.Id);
+            if (refreshedLoan != null)
+                selectedLoanDetails = refreshedLoan;
             return ConsoleState.LoanDetails;
         }
         else if (action == CommonActions.ReturnLoanedBook)
@@ -257,7 +331,9 @@ public class ConsoleApp
             Console.WriteLine(EnumHelper.GetDescription(status));
             _currentState = ConsoleState.LoanDetails;
             // reload loan after returning
-            selectedLoanDetails = await _loanRepository.GetLoan(selectedLoanDetails.Id);
+            var refreshedLoan = await _loanRepository.GetLoan(selectedLoanDetails.Id);
+            if (refreshedLoan != null)
+                selectedLoanDetails = refreshedLoan;
             return ConsoleState.LoanDetails;
         }
         else if (action == CommonActions.Quit)
