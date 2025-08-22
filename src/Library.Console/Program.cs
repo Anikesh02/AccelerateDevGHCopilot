@@ -16,6 +16,8 @@ services.AddScoped<IPatronRepository, JsonPatronRepository>();
 services.AddScoped<ILoanRepository, JsonLoanRepository>();
 services.AddScoped<ILoanService, LoanService>();
 services.AddScoped<IPatronService, PatronService>();
+services.AddScoped<IBookItemRepository, JsonBookItemRepository>();
+services.AddScoped<IBookService, BookService>();
 
 services.AddSingleton<JsonData>();
 services.AddSingleton<ConsoleApp>();
